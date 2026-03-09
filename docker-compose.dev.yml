@@ -1,0 +1,21 @@
+# Development overrides — run with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Auto-reload workflow:
+#   1. Edit source files on the host
+#   2. Trigger a compile (IntelliJ "Build Project", or `mvn compile` in another terminal)
+#   3. DevTools detects the changed .class files and restarts the app (~1s)
+
+services:
+  nexus-bank-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/app                   # live source mount
+      - maven-cache:/root/.m2    # persist downloaded jars across container restarts
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+
+volumes:
+  maven-cache:

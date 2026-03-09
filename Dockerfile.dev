@@ -1,0 +1,14 @@
+# Dev image — runs from source via Maven so DevTools is active
+FROM maven:3.9.6-eclipse-temurin-17
+
+WORKDIR /app
+
+# Pre-warm the Maven cache using only pom.xml (layer is reused unless pom changes)
+COPY pom.xml .
+RUN mvn -B -q dependency:go-offline
+
+# Source is mounted as a volume at runtime — nothing to COPY here
+
+EXPOSE 8080
+
+ENTRYPOINT ["mvn", "spring-boot:run"]

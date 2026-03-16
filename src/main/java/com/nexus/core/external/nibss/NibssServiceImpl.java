@@ -41,9 +41,14 @@ class NibssServiceImpl implements NibssService {
 
     }
 
+    private String mask(String accountNumber) {
+        if (accountNumber == null || accountNumber.length() < 4) return "****";
+        return "****" + accountNumber.substring(accountNumber.length() - 4);
+    }
+
     @Override
     public BeneficiaryResponse resolveAccount(String bankCode, String accountNumber) {
-        log.info("Resolving account: {} in bank: {}", accountNumber, bankCode);
+        log.info("Resolving account: {} in bank: {}", mask(accountNumber), bankCode);
         Bank bank = Bank.fromCode(bankCode);
 
         String accountName;
@@ -83,8 +88,8 @@ class NibssServiceImpl implements NibssService {
                 request.targetAccountName(),
                 request.description()
         );
-        String bodyJson = objectMapper.writeValueAsString(submission);
-        log.info("Sending inter-bank transfer request to NIBSS: {}", bodyJson);
+        log.info("Submitting inter-bank transfer to NIBSS for session: {}, from: {}, to: {} ({})",
+                nipSessionId, mask(request.fromAccountNumber()), mask(request.toAccountNumber()), request.targetBankCode());
 
         restTemplate.postForEntity(
                 nibssProperties.baseUrl() + "/transfers",

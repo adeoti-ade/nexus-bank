@@ -7,7 +7,9 @@ import com.nexus.core.common.TransactionType;
 import com.nexus.core.common.TransactionRequest;
 import com.nexus.core.common.TransactionResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,6 +46,7 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.transfer(fullRequest));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/deposit")
     public ResponseEntity<TransactionResponse> deposit(
             @AuthenticationPrincipal User user,
@@ -87,7 +90,14 @@ public class TransactionController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<TransactionResponse> getTransaction(@PathVariable UUID id) {
-        return ResponseEntity.ok(transactionService.getTransactionById(id));
+    public ResponseEntity<TransactionResponse> getTransaction(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+        TransactionResponse tx = transactionService.getTransactionById(id);
+        String myAccountNumber = accountService.getAccountByUserId(user.getId()).getAccountNumber();
+        if (!myAccountNumber.equals(tx.fromAccountNumber()) && !myAccountNumber.equals(tx.toAccountNumber())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(tx);
     }
 }

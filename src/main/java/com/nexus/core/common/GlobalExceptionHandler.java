@@ -6,6 +6,9 @@ import com.nexus.core.common.DuplicateTransactionException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,7 +18,8 @@ import java.net.URI;
 import java.util.stream.Collectors;
 
 @Slf4j
-@RestControllerAdvice
+// Restrict to our controllers only — prevents intercepting actuator endpoint exceptions (DEF-009)
+@RestControllerAdvice(basePackages = "com.nexus.core")
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(WebhookSignatureException.class)
@@ -44,9 +48,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UserNotFoundException.class)
     ProblemDetail handleUserNotFound(UserNotFoundException ex) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        log.warn("User not found: {}", ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "The requested user was not found");
         detail.setTitle("User Not Found");
         detail.setType(URI.create("https://nexus-bank.com/errors/user-not-found"));
+        return detail;
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "You do not have permission to perform this action");
+        detail.setTitle("Forbidden");
+        detail.setType(URI.create("https://nexus-bank.com/errors/forbidden"));
         return detail;
     }
 
@@ -58,6 +71,15 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ProblemDetail handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
+        log.warn("Optimistic lock conflict: {}", ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Transaction conflict detected. Please retry.");
+        detail.setTitle("Transaction Conflict");
+        detail.setType(URI.create("https://nexus-bank.com/errors/transaction-conflict"));
+        return detail;
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
@@ -66,21 +88,36 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
+    // Handle malformed JSON bodies (DEF-012)
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ProblemDetail handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Malformed request body: {}", ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Malformed or unreadable request body");
+        detail.setTitle("Bad Request");
+        detail.setType(URI.create("https://nexus-bank.com/errors/bad-request"));
+        return detail;
+    }
+
     @ExceptionHandler(RuntimeException.class)
     ProblemDetail handleRuntime(RuntimeException ex) {
         HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
         String title = "Server Error";
-        log.error(ex.getMessage(), ex);
+        String safeDetail = "An unexpected error occurred. Please try again.";
+
+        // Log the full internal message server-side only
+        log.error("Runtime exception [{}]: {}", ex.getClass().getSimpleName(), ex.getMessage(), ex);
 
         if (ex.getMessage() != null && ex.getMessage().contains("Insufficient balance")) {
             status = HttpStatus.BAD_REQUEST;
             title = "Insufficient Balance";
+            safeDetail = "Insufficient funds for this transaction.";
         } else if (ex.getMessage() != null && (ex.getMessage().contains("Account not found") || ex.getMessage().contains("Transaction not found"))) {
             status = HttpStatus.NOT_FOUND;
             title = "Not Found";
+            safeDetail = "The requested resource was not found.";
         }
 
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(status, safeDetail);
         detail.setTitle(title);
         detail.setType(URI.create("https://nexus-bank.com/errors/runtime-error"));
         return detail;
@@ -99,9 +136,10 @@ public class GlobalExceptionHandler {
 
         return detail;
     }
-    
+
     @ExceptionHandler(Exception.class)
     ProblemDetail handleGeneric(Exception ex) {
+        log.error("Unhandled exception: {}", ex.getMessage(), ex);
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
         detail.setTitle("Internal Server Error");
         detail.setType(URI.create("https://nexus-bank.com/errors/internal-error"));

@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: nexus_bank
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: secure_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     healthcheck:
@@ -18,8 +18,7 @@ services:
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    ports:
-      - "8081:8081"
+    # Port 8081 intentionally not mapped to host — access via docker exec or internal network only
     environment:
       KAFKA_CLUSTERS_0_NAME: nexus
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: nexus-kafka:9092
@@ -29,8 +28,7 @@ services:
   nexus-kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: nexus-kafka
-    ports:
-      - "9092:9092"
+    # Port 9092 intentionally not mapped to host — broker is internal only
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -108,7 +106,7 @@ services:
     ports:
       - "8090:8090"
     environment:
-      NIBSS_WEBHOOK_SECRET: nibss-webhook-secret-dev
+      NIBSS_WEBHOOK_SECRET: ${NIBSS_WEBHOOK_SECRET}
       NEXUS_BANK_CALLBACK_URL: http://nexus-bank-app:8080/api/webhooks/nibss/transfer-out/callback
       CALLBACK_DELAY_SECONDS: 5
     networks:
@@ -118,11 +116,13 @@ services:
     build: .
     container_name: nexus-bank-app
     ports:
-      - "8080:8080"
+      - "8082:8080"
+      - "9091:9091"   # management/actuator port for health probes and monitoring
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://nexus-db:5432/nexus_bank
       SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: secure_password
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
 
       # Kafka
       SPRING_KAFKA_BOOTSTRAP_SERVERS: nexus-kafka:9092
@@ -135,7 +135,7 @@ services:
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
 
       # NIBSS
-      NIBSS_WEBHOOK_SECRET: nibss-webhook-secret-dev
+      NIBSS_WEBHOOK_SECRET: ${NIBSS_WEBHOOK_SECRET}
       NIBSS_MOCK_MODE: "false"
       NIBSS_BASE_URL: http://mock-nibss:8090
 

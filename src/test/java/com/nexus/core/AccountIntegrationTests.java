@@ -42,7 +42,7 @@ class AccountIntegrationTests {
                 "John",
                 "Doe",
                 "john.doe@example.com",
-                "password123"
+                "P@ssw0rd123"
         );
 
         MvcResult result = mockMvc.perform(post("/api/auth/register")

@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.web.client.HttpClientErrorException;
 
 @Component
 @RequiredArgsConstructor
@@ -93,7 +94,22 @@ class TransactionEventListener {
                         event.nipSessionId()
                 );
                 log.info("Transaction {} submitted to NIBSS, awaiting webhook callback", event.transactionId());
+            } catch (HttpClientErrorException e) {
+                // 4xx error — permanent failure (bad request to NIBSS). Do NOT retry. Refund immediately. (DEF-004)
+                log.error("Transaction {} rejected by NIBSS with {} (permanent failure), refunding sender",
+                        event.transactionId(), e.getStatusCode());
+                transaction.setStatus(TransactionStatus.FAILED);
+                transactionRepository.save(transaction);
+
+                try {
+                    accountService.credit(transaction.getFromAccountNumber(), transaction.getAmount());
+                    log.info("Refunded {} to account {} after NIBSS 4xx rejection", transaction.getAmount(), transaction.getFromAccountNumber());
+                } catch (Exception refundError) {
+                    log.error("CRITICAL: Failed to refund transaction {} to account {}",
+                            event.transactionId(), transaction.getFromAccountNumber(), refundError);
+                }
             } catch (Exception e) {
+                // 5xx or network error — apply retry logic
                 int currentAttempts = transaction.getNibssAttempts() == null ? 0 : transaction.getNibssAttempts();
                 transaction.setNibssAttempts(currentAttempts + 1);
                 log.warn("NIBSS submission failed for transaction {} (attempt {}/{}): {}",

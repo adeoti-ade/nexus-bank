@@ -48,7 +48,7 @@ class NibssWebhookControllerIntegrationTest {
         accountRepository.deleteAll();
         userRepository.deleteAll();
 
-        RegisterRequest request = new RegisterRequest("Webhook", "User", "webhook@test.com", "password123");
+        RegisterRequest request = new RegisterRequest("Webhook", "User", "webhook@test.com", "P@ssw0rd123");
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

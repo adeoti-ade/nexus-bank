@@ -7,8 +7,9 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Date;
+import java.util.UUID;
 
 @Service
 class JwtService {
@@ -18,7 +19,10 @@ class JwtService {
 
     JwtService(JwtProperties properties) {
         this.properties = properties;
-        this.signingKey = Keys.hmacShaKeyFor(properties.secret().getBytes(StandardCharsets.UTF_8));
+        if (properties.secret() == null || properties.secret().isBlank()) {
+            throw new IllegalStateException("JWT_SECRET environment variable must be set — no default is allowed");
+        }
+        this.signingKey = Keys.hmacShaKeyFor(Base64.getDecoder().decode(properties.secret()));
     }
 
     String generateToken(UserDetails userDetails) {
@@ -26,6 +30,7 @@ class JwtService {
         Date expiry = new Date(now.getTime() + properties.expirationMs());
 
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userDetails.getUsername())
                 .issuer(properties.issuer())
                 .issuedAt(now)
@@ -36,6 +41,14 @@ class JwtService {
 
     String extractUsername(String token) {
         return extractClaims(token).getSubject();
+    }
+
+    String extractJti(String token) {
+        return extractClaims(token).getId();
+    }
+
+    Date extractExpiration(String token) {
+        return extractClaims(token).getExpiration();
     }
 
     boolean isTokenValid(String token, UserDetails userDetails) {

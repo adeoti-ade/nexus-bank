@@ -18,10 +18,14 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
+    private final TokenBlocklistService tokenBlocklistService;
 
-    JwtAuthenticationFilter(JwtService jwtService, UserDetailsService userDetailsService) {
+    JwtAuthenticationFilter(JwtService jwtService,
+                            UserDetailsService userDetailsService,
+                            TokenBlocklistService tokenBlocklistService) {
         this.jwtService = jwtService;
         this.userDetailsService = userDetailsService;
+        this.tokenBlocklistService = tokenBlocklistService;
     }
 
     @Override
@@ -41,6 +45,13 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
         String username = jwtService.extractUsername(token);
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            // Reject tokens that have been explicitly revoked at logout
+            String jti = jwtService.extractJti(token);
+            if (jti != null && tokenBlocklistService.isBlocked(jti)) {
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Token has been revoked");
+                return;
+            }
+
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
             if (jwtService.isTokenValid(token, userDetails)) {

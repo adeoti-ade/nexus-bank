@@ -12,8 +12,14 @@ export const authService = {
     return response.data;
   },
 
-  logout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  async logout(): Promise<void> {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Server-side revocation is best-effort; always clear local state
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
   }
 };

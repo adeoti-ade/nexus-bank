@@ -10,9 +10,12 @@ import com.nexus.core.common.TransactionRequest;
 import com.nexus.core.common.TransactionResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -31,10 +34,26 @@ class TransactionServiceImpl implements TransactionService {
     @Transactional
     public TransactionResponse transfer(TransactionRequest request) {
         if (request.idempotencyKey() != null) {
-            var existing = transactionRepository.findByIdempotencyKey(request.idempotencyKey());
+            var existing = transactionRepository.findByIdempotencyKeyAndFromAccountNumber(
+                    request.idempotencyKey(), request.fromAccountNumber());
             if (existing.isPresent()) {
                 return mapToResponse(existing.get());
             }
+            if (transactionRepository.findByIdempotencyKey(request.idempotencyKey()).isPresent()) {
+                throw new IllegalArgumentException("Idempotency key already used by a different account");
+            }
+        }
+
+        // Validate required transfer fields before debiting (DEF-002, DEF-004, DEF-005)
+        if (request.toAccountNumber() == null || request.toAccountNumber().isBlank()) {
+            throw new IllegalArgumentException("toAccountNumber is required for transfers");
+        }
+        if (request.fromAccountNumber() != null && request.fromAccountNumber().equals(request.toAccountNumber())) {
+            throw new IllegalArgumentException("Cannot transfer to your own account");
+        }
+        boolean isInternal = Bank.NEXUS.getCode().equals(request.targetBankCode());
+        if (!isInternal && (request.targetAccountName() == null || request.targetAccountName().isBlank())) {
+            throw new IllegalArgumentException("targetAccountName is required for inter-bank transfers");
         }
 
         checkSemanticDuplicate(request.fromAccountNumber(), request.toAccountNumber(), request.amount(), TransactionType.TRANSFER);
@@ -44,9 +63,12 @@ class TransactionServiceImpl implements TransactionService {
         }
 
         // 1. Debit the sender (Always synchronous to lock funds)
-        accountService.debit(request.fromAccountNumber(), request.amount());
+        try {
+            accountService.debit(request.fromAccountNumber(), request.amount());
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new DuplicateTransactionException("Account was modified concurrently. Please retry the transaction.");
+        }
 
-        boolean isInternal = Bank.NEXUS.getCode().equals(request.targetBankCode());
         TransactionStatus initialStatus = isInternal ? TransactionStatus.COMPLETED : TransactionStatus.PROCESSING;
 
         if (isInternal) {
@@ -86,9 +108,13 @@ class TransactionServiceImpl implements TransactionService {
     @Transactional
     public TransactionResponse deposit(TransactionRequest request) {
         if (request.idempotencyKey() != null) {
-            var existing = transactionRepository.findByIdempotencyKey(request.idempotencyKey());
+            var existing = transactionRepository.findByIdempotencyKeyAndToAccountNumber(
+                    request.idempotencyKey(), request.toAccountNumber());
             if (existing.isPresent()) {
                 return mapToResponse(existing.get());
+            }
+            if (transactionRepository.findByIdempotencyKey(request.idempotencyKey()).isPresent()) {
+                throw new IllegalArgumentException("Idempotency key already used by a different account");
             }
         }
 
@@ -116,9 +142,13 @@ class TransactionServiceImpl implements TransactionService {
     @Transactional
     public TransactionResponse withdraw(TransactionRequest request) {
         if (request.idempotencyKey() != null) {
-            var existing = transactionRepository.findByIdempotencyKey(request.idempotencyKey());
+            var existing = transactionRepository.findByIdempotencyKeyAndFromAccountNumber(
+                    request.idempotencyKey(), request.fromAccountNumber());
             if (existing.isPresent()) {
                 return mapToResponse(existing.get());
+            }
+            if (transactionRepository.findByIdempotencyKey(request.idempotencyKey()).isPresent()) {
+                throw new IllegalArgumentException("Idempotency key already used by a different account");
             }
         }
 
@@ -142,7 +172,7 @@ class TransactionServiceImpl implements TransactionService {
         return mapToResponse(transactionRepository.save(transaction));
     }
 
-    private void checkSemanticDuplicate(String from, String to, java.math.BigDecimal amount, TransactionType type) {
+    private void checkSemanticDuplicate(String from, String to, BigDecimal amount, TransactionType type) {
         LocalDateTime since = LocalDateTime.now().minusSeconds(DUPLICATE_WINDOW_SECONDS);
         List<Transaction> duplicates = transactionRepository.findSemanticDuplicates(from, to, amount, type, since);
         if (!duplicates.isEmpty()) {
@@ -165,9 +195,13 @@ class TransactionServiceImpl implements TransactionService {
     }
 
     private TransactionResponse mapToResponse(Transaction transaction) {
+        // Normalize BigDecimal scale for consistent JSON output (DEF-006)
+        BigDecimal normalizedAmount = transaction.getAmount() != null
+                ? transaction.getAmount().setScale(2, RoundingMode.HALF_UP)
+                : null;
         return new TransactionResponse(
                 transaction.getId(),
-                transaction.getAmount(),
+                normalizedAmount,
                 transaction.getType(),
                 transaction.getStatus(),
                 transaction.getFromAccountNumber(),

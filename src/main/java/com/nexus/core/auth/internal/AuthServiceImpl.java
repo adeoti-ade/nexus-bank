@@ -19,19 +19,22 @@ class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final ApplicationEventPublisher eventPublisher;
+    private final TokenBlocklistService tokenBlocklistService;
 
     AuthServiceImpl(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             AuthenticationManager authenticationManager,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            TokenBlocklistService tokenBlocklistService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.authenticationManager = authenticationManager;
         this.eventPublisher = eventPublisher;
+        this.tokenBlocklistService = tokenBlocklistService;
     }
 
     @Override
@@ -64,6 +67,17 @@ class AuthServiceImpl implements AuthService {
                 savedUser.getRole().name(),
                 token
         );
+    }
+
+    @Override
+    public void logout(String bearerToken) {
+        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+            String token = bearerToken.substring(7);
+            String jti = jwtService.extractJti(token);
+            if (jti != null) {
+                tokenBlocklistService.block(jti, jwtService.extractExpiration(token));
+            }
+        }
     }
 
     @Override

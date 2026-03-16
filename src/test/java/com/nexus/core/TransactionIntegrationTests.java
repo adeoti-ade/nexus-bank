@@ -70,7 +70,7 @@ class TransactionIntegrationTests {
     }
 
     private String registerUser(String first, String last, String email) throws Exception {
-        RegisterRequest request = new RegisterRequest(first, last, email, "password123");
+        RegisterRequest request = new RegisterRequest(first, last, email, "P@ssw0rd123");
         MvcResult result = mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -83,29 +83,15 @@ class TransactionIntegrationTests {
 
     @Test
     void shouldPerformDepositAndWithdrawal() throws Exception {
-        // Deposit
-        TransactionRequest depositRequest = new TransactionRequest(
-                new BigDecimal("1000.00"),
-                TransactionType.DEPOSIT,
-                null, null, null, null, "Test Deposit", null
-        );
-
-        mockMvc.perform(post("/api/transactions/deposit")
-                        .header("Authorization", "Bearer " + token1)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(depositRequest)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.amount").value(1000.00))
-                .andExpect(jsonPath("$.type").value("DEPOSIT"));
-
-        Account updatedAccount = accountRepository.findById(account1.getId()).orElseThrow();
-        assertThat(updatedAccount.getBalance()).isEqualByComparingTo("1000.00");
+        // Deposit endpoint is ADMIN-only; seed balance directly for test setup
+        account1.setBalance(new BigDecimal("1000.00"));
+        accountRepository.save(account1);
 
         // Withdrawal
         TransactionRequest withdrawRequest = new TransactionRequest(
                 new BigDecimal("400.00"),
                 TransactionType.WITHDRAWAL,
-                null, null, null, null, "Test Withdrawal", null
+                null, null, null, null, "Test Withdrawal", UUID.randomUUID().toString()
         );
 
         mockMvc.perform(post("/api/transactions/withdraw")
@@ -116,7 +102,7 @@ class TransactionIntegrationTests {
                 .andExpect(jsonPath("$.amount").value(400.00))
                 .andExpect(jsonPath("$.type").value("WITHDRAWAL"));
 
-        updatedAccount = accountRepository.findById(account1.getId()).orElseThrow();
+        Account updatedAccount = accountRepository.findById(account1.getId()).orElseThrow();
         assertThat(updatedAccount.getBalance()).isEqualByComparingTo("600.00");
     }
 
@@ -130,7 +116,7 @@ class TransactionIntegrationTests {
         TransactionRequest transferRequest = new TransactionRequest(
                 new BigDecimal("500.00"),
                 TransactionType.TRANSFER,
-                null, account2.getAccountNumber(), "000", "User Two", "Gift", null
+                null, account2.getAccountNumber(), "000", "User Two", "Gift", UUID.randomUUID().toString()
         );
 
         mockMvc.perform(post("/api/transactions/transfer")
@@ -157,7 +143,7 @@ class TransactionIntegrationTests {
         TransactionRequest withdrawRequest = new TransactionRequest(
                 new BigDecimal("100.00"),
                 TransactionType.WITHDRAWAL,
-                null, null, null, null, "Broke", null
+                null, null, null, null, "Broke", UUID.randomUUID().toString()
         );
 
         mockMvc.perform(post("/api/transactions/withdraw")

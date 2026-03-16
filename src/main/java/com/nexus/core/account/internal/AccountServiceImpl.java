@@ -2,6 +2,7 @@ package com.nexus.core.account.internal;
 
 import com.nexus.core.account.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -47,16 +48,22 @@ class AccountServiceImpl implements AccountService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void credit(String accountNumber, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Credit amount must be positive");
+        }
         Account account = getAccountByNumber(accountNumber);
         account.setBalance(account.getBalance().add(amount));
         accountRepository.save(account);
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void debit(String accountNumber, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Debit amount must be positive");
+        }
         Account account = getAccountByNumber(accountNumber);
         if (account.getBalance().compareTo(amount) < 0) {
             throw new RuntimeException("Insufficient balance");

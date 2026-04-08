@@ -1,5 +1,3 @@
-# Nexus Bank — Claude Code Instructions
-
 ## Project Overview
 
 A full-stack banking application with an inter-bank transfer system (simulated NIBSS NIP integration). Backend is a **Spring Modulith** monolith; frontend is **React + TypeScript + Vite**.
